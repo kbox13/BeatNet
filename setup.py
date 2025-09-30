@@ -18,18 +18,17 @@ import distutils.cmd
 
 # Required packages
 REQUIRED_PACKAGES = [
-    'numpy',
-    'cython',
-    'librosa>=0.8.0',
-    'numba==0.54.1', # Manually specified here as librosa incorrectly states that it is compatible with the latest version of numba although 0.50.0 is not compatible. 
-    'scipy',
-    'mido>=1.2.6',
-    'pytest',
+    "numpy",
+    "cython",
+    "librosa>=0.8.0",
+    "numba>=0.60.0",  # Updated to support Python 3.13
+    "scipy",
+    "mido>=1.2.6",
+    "pytest",
     #'pyaudio',
     ##'pyfftw',
-    'madmom',
-    'torch',
-    'Matplotlib',
+    "torch",
+    "Matplotlib",
 ]
 
 
