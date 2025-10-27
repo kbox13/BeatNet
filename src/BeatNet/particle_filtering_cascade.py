@@ -5,8 +5,25 @@ import numpy as np
 import matplotlib.pyplot as plt
 from numpy.random import default_rng
 rng = default_rng()
-from madmom.features.beats_hmm import BarStateSpace, BarTransitionModel     # importing the bar pointer state space implemented in Madmom
-from madmom.ml.hmm import TransitionModel, ObservationModel
+
+# Optional madmom imports - only needed for particle filtering
+try:
+    from madmom.features.beats_hmm import BarStateSpace, BarTransitionModel     # importing the bar pointer state space implemented in Madmom
+    from madmom.ml.hmm import TransitionModel, ObservationModel
+    MADMOM_AVAILABLE = True
+except ImportError:
+    print("Warning: madmom not available. Particle filtering will not work.")
+    print("For particle filtering, install madmom with: pip install madmom")
+    # Create dummy classes to prevent errors
+    class BarStateSpace:
+        pass
+    class BarTransitionModel:
+        pass
+    class TransitionModel:
+        pass
+    class ObservationModel:
+        pass
+    MADMOM_AVAILABLE = False
 
 class BDObservationModel(ObservationModel):
     """
@@ -173,6 +190,8 @@ class particle_filter_cascade:
         self.beat = np.squeeze(self.st.first_states)
         
         #   plots initialization
+        if self.plot:
+            plt.ion()
         if 'activations' in self.plot and (self.mode == 'stream' or self.mode == 'realtime'):
             f1, self.subplot1 = plt.subplots(figsize=(100, 40), dpi=5)
             self.subplot1.set_ylim([0,1])
@@ -184,6 +203,7 @@ class particle_filter_cascade:
             self.subplot1.set_title("Activations plot", size=200)
             self.subplot1.plot(self.downbeats_activation_show , color='purple', label='Downbeat Activations', linewidth=15) # Make a new line for the downbeat activations
             self.activation_lines = self.subplot1.get_lines() # Obtain a list of lines on the plot
+            plt.show(block=False)
             
         if 'beat_particles' in self.plot:
             f2, self.subplot2 = plt.subplots(figsize=(30, 10), dpi=50)
@@ -200,6 +220,7 @@ class particle_filter_cascade:
             self.subplot2.set_ylabel("ϕ'_b: Tempo", size=20)
             self.subplot2.set_title("Beat particle states", size=20)
             self.beat_particles_swarm = self.subplot2.axvline(x=position_beats) # setting up beat particle average to display
+            plt.show(block=False)
             
         if 'downbeat_particles' in self.plot:    
             f3, self.subplot3 = plt.subplots(figsize=(30, 10), dpi=50)
@@ -218,8 +239,7 @@ class particle_filter_cascade:
             self.subplot3.set_ylabel("ϕ'_d: Meter", size=20)
             self.subplot3.set_title("Downbeat particle states", size=20)
             self.down_particles_swarm = self.subplot3.axvline(x=position_downs) # setting up downbeat particle average to display
-        
-            #plt.show(block=False)
+            plt.show(block=False)
 
     def process(self, activations):
 
@@ -356,7 +376,8 @@ class particle_filter_cascade:
             self.st.state_intervals) - self.st.state_intervals[part[:, 0]]])
         self.beat_particles_show[2].set_alpha(current_activation)
         self.beat_particles_show[2].set_color(beat_color_show)
-        self.beat_particles_swarm.set_xdata(x=position_beats)
+        # set_xdata requires a sequence, provide a 2-point vertical line x data
+        self.beat_particles_swarm.set_xdata([position_beats, position_beats])
         plt.pause(0.000000001)
     
     def downbeat_particles_plot(self):
@@ -371,7 +392,8 @@ class particle_filter_cascade:
             current_activations = self.both_activations[self.counter]     
         self.downbeat_particles_show[1].set_offsets(np.c_[self.st2.state_positions[part1[:, 0]], np.max(self.st2.state_intervals) - self.st2.state_intervals[part1[:, 0]]])
         self.downbeat_particles_show[2].set_alpha(current_activations[1])
-        self.down_particles_swarm.set_xdata(x=position_downs)
+        # set_xdata requires a sequence, provide a 2-point vertical line x data
+        self.down_particles_swarm.set_xdata([position_downs, position_downs])
         plt.pause(0.0000000001)
 
 

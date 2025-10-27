@@ -48,7 +48,7 @@ class BeatNet:
     '''
     
     
-    def __init__(self, model, mode='online', inference_model='PF', plot=[], thread=False, device='cpu'):
+    def __init__(self, model, mode='online', inference_model='PF', plot=[], thread=False, device='cpu', input_device_index=None):
         self.model = model
         self.mode = mode
         self.inference_model = inference_model
@@ -83,12 +83,47 @@ class BeatNet:
             raise RuntimeError(f'Failed to open the trained model: {model}')
         self.model.eval()
         if self.mode == 'stream':
-            self.stream_window = np.zeros(self.log_spec_win_length + 2 * self.log_spec_hop_length, dtype=np.float32)                                          
-            self.stream = pyaudio.PyAudio().open(format=pyaudio.paFloat32,
-                                             channels=1,
-                                             rate=self.sample_rate,
-                                             input=True,
-                                             frames_per_buffer=self.log_spec_hop_length,)
+            self.stream_window = np.zeros(self.log_spec_win_length + 2 * self.log_spec_hop_length, dtype=np.float32)
+            self._pyaudio = pyaudio.PyAudio()
+            self.input_device_index = input_device_index
+            # Determine device to use
+            if self.input_device_index is not None:
+                dev_info = self._pyaudio.get_device_info_by_index(self.input_device_index)
+            else:
+                dev_info = self._pyaudio.get_default_input_device_info()
+                self.input_device_index = int(dev_info.get('index', 0))
+            dev_name = dev_info.get('name', 'Unknown')
+            dev_sr = int(dev_info.get('defaultSampleRate', self.sample_rate))
+            max_in_ch = int(dev_info.get('maxInputChannels', 1))
+            # Choose channels and input sample rate
+            self.input_channels = 1 if max_in_ch >= 1 else max_in_ch
+            self.input_sample_rate = self.sample_rate
+            self.frames_per_buffer_in = self.log_spec_hop_length
+            # Try to open at model sample rate first; if fails, fall back to device rate
+            try:
+                self.stream = self._pyaudio.open(format=pyaudio.paFloat32,
+                                                 channels=self.input_channels,
+                                                 rate=self.sample_rate,
+                                                 input=True,
+                                                 input_device_index=self.input_device_index,
+                                                 frames_per_buffer=self.log_spec_hop_length)
+                self.input_sample_rate = self.sample_rate
+                self.frames_per_buffer_in = self.log_spec_hop_length
+                print(f"BeatNet stream: using device {self.input_device_index} '{dev_name}' at {self.sample_rate} Hz, channels={self.input_channels}")
+            except Exception:
+                # Fallback to device default sample rate and compute corresponding frames per buffer (~20ms)
+                self.input_sample_rate = dev_sr
+                self.frames_per_buffer_in = max(1, int(0.02 * self.input_sample_rate))
+                self.stream = self._pyaudio.open(format=pyaudio.paFloat32,
+                                                 channels=self.input_channels,
+                                                 rate=self.input_sample_rate,
+                                                 input=True,
+                                                 input_device_index=self.input_device_index,
+                                                 frames_per_buffer=self.frames_per_buffer_in)
+                print(f"BeatNet stream: using device {self.input_device_index} '{dev_name}' at {self.input_sample_rate} Hz (resampling to {self.sample_rate} Hz), channels={self.input_channels}")
+            # Initialize streaming counters/state so external callers can use
+            # activation_extractor_stream() without calling process() first.
+            self.counter = 0
                                              
     def process(self, audio_path=None):   
         if self.mode == "stream":
@@ -157,8 +192,23 @@ class BeatNet:
         Given the training input window's origin set to center, this streaming data formation causes 0.084 (s) delay compared to the trained model that needs to be fixed. 
         '''
         with torch.no_grad():
-            hop = self.stream.read(self.log_spec_hop_length)
-            hop = np.frombuffer(hop, dtype=np.float32)
+            # Read from device buffer size
+            hop_buf = self.stream.read(self.frames_per_buffer_in, exception_on_overflow=False)
+            hop = np.frombuffer(hop_buf, dtype=np.float32)
+            # Downmix if multi-channel
+            if self.input_channels and self.input_channels > 1 and hop.size >= self.frames_per_buffer_in * self.input_channels:
+                hop = hop.reshape(-1, self.input_channels).mean(axis=1)
+            # Resample if needed
+            if self.input_sample_rate != self.sample_rate:
+                # Target number of samples to match model hop length
+                target_len = self.log_spec_hop_length
+                hop = librosa.resample(hop, orig_sr=self.input_sample_rate, target_sr=self.sample_rate)
+                # Pad/trim to expected hop length
+                if hop.size < target_len:
+                    hop = np.pad(hop, (0, target_len - hop.size), mode='constant')
+                elif hop.size > target_len:
+                    hop = hop[:target_len]
+            # Maintain streaming window at model hop length
             self.stream_window = np.append(self.stream_window[self.log_spec_hop_length:], hop)
             if self.counter < 5:
                 self.pred = np.zeros([1,2])
@@ -199,7 +249,7 @@ class BeatNet:
     def activation_extractor_online(self, audio_path):
         with torch.no_grad():
             if isinstance(audio_path, str):
-            	audio, _ = librosa.load(audio_path, sr=self.sample_rate)  # reading the data
+                audio, _ = librosa.load(audio_path, sr=self.sample_rate)  # reading the data
             elif len(np.shape(audio_path))>1:
                 audio = np.mean(audio_path ,axis=1)
             else:

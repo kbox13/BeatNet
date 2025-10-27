@@ -1,12 +1,37 @@
 # Author: Mojtaba Heydari <mheydari@ur.rochester.edu>
 
 
-from madmom.audio.signal import SignalProcessor, FramedSignalProcessor
-from madmom.audio.stft import ShortTimeFourierTransformProcessor
-from madmom.audio.spectrogram import (
-    FilteredSpectrogramProcessor, LogarithmicSpectrogramProcessor,
-    SpectrogramDifferenceProcessor)
-from madmom.processors import ParallelProcessor, SequentialProcessor
+# Optional madmom imports - only needed for spectrogram processing
+try:
+    from madmom.audio.signal import SignalProcessor, FramedSignalProcessor
+    from madmom.audio.stft import ShortTimeFourierTransformProcessor
+    from madmom.audio.spectrogram import (
+        FilteredSpectrogramProcessor, LogarithmicSpectrogramProcessor,
+        SpectrogramDifferenceProcessor)
+    from madmom.processors import ParallelProcessor, SequentialProcessor
+    MADMOM_AVAILABLE = True
+except ImportError:
+    print("Warning: madmom not available. Spectrogram processing will not work.")
+    print("For spectrogram processing, install madmom with: pip install madmom")
+    # Create dummy classes to prevent errors
+    class SignalProcessor:
+        pass
+    class FramedSignalProcessor:
+        pass
+    class ShortTimeFourierTransformProcessor:
+        pass
+    class FilteredSpectrogramProcessor:
+        pass
+    class LogarithmicSpectrogramProcessor:
+        pass
+    class SpectrogramDifferenceProcessor:
+        pass
+    class ParallelProcessor:
+        pass
+    class SequentialProcessor:
+        pass
+    MADMOM_AVAILABLE = False
+
 from BeatNet.common import *
 
 
